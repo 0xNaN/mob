@@ -225,26 +225,18 @@ should_store_a_key_on_closest_peers_test() ->
     PeerD = peer:start(16#F62F2225BF70BFACCBC7F1EF2A397836717377DE, K, Alpha),
 
     peer:join(PeerA, PeerC),
-    timer:sleep(50),
+    timer:sleep(100),
     peer:join(PeerB, PeerC),
-    timer:sleep(50),
+    timer:sleep(100),
     peer:join(PeerD, PeerB),
-    timer:sleep(50),
+    timer:sleep(100),
 
     peer:iterative_store(PeerA, {Key, Value}),
-    timer:sleep(50),
 
-    peer:find_value_of(PeerA, HashKey, FakePeer),
-    ?receiving({PeerA, ResponseA}, ?assertEqual({found, Value}, ResponseA)),
-
-    peer:find_value_of(PeerC, HashKey, FakePeer),
-    ?receiving({PeerC, ResponseB}, ?assertEqual({found, Value}, ResponseB)),
-
-    peer:find_value_of(PeerB, HashKey, FakePeer),
-    ?receiving({PeerB, ResponseC}, ?assertEqual({found, Value}, ResponseC)),
-
-    peer:find_value_of(PeerD, HashKey, FakePeer),
-    ?receiving({PeerD, ResponseD}, ?assertEqual([PeerA, PeerB, PeerC], ResponseD)).
+    ?assertEqual({found, Value}, peer:find_value_of(PeerA, HashKey, FakePeer)),
+    ?assertEqual({found, Value}, peer:find_value_of(PeerC, HashKey, FakePeer)),
+    ?assertEqual({found, Value}, peer:find_value_of(PeerB, HashKey, FakePeer)),
+    ?assertEqual([PeerA, PeerB, PeerC], peer:find_value_of(PeerD, HashKey, FakePeer)).
 
 should_find_a_value_stored_in_itself_test() ->
     Key     = key,
@@ -268,14 +260,13 @@ should_find_a_value_stored_in_a_network_test() ->
     PeerD = peer:start(16#F62F2225BF70BFACCBC7F1EF2A397836717377DE, ?K, ?ALPHA),
 
     peer:join(PeerA, PeerC),
-    timer:sleep(50),
+    timer:sleep(100),
     peer:join(PeerB, PeerC),
-    timer:sleep(50),
+    timer:sleep(100),
     peer:join(PeerD, PeerB),
-    timer:sleep(50),
+    timer:sleep(100),
 
     peer:iterative_store(PeerA, {Key, Value}),
-    timer:sleep(50),
 
     ?assertEqual({found, Value}, peer:iterative_find_value(PeerD, Key)).
 

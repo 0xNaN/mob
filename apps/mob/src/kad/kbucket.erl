@@ -54,7 +54,7 @@ refresh(Kbucket) ->
 loop(#kbucket{keylength = Keylength, peer = Peer, contacts = Contacts} = Kbucket) ->
     receive
         {put, FromPeer, Contact} when Contact =/= Peer ->
-            log:kbucket(Kbucket, [], "PUT ~p", [Contact]),
+            log:kbucket(Kbucket, [], "~p PUT ~p", [self(), Contact]),
             NewKbucket = handle_put(Kbucket, Contact),
             loop(NewKbucket);
         {closest_contacts, FromPeer, Key} ->
@@ -107,9 +107,11 @@ bucket_for(#kbucket{contacts = Contacts, peer = {_, MyId}}, {_, ContactId}) ->
     DestinationBucketIndex = bucket_index(distance(MyId, ContactId)),
     {DestinationBucketIndex, bucket(DestinationBucketIndex, Contacts)}.
 
+put_on([LeastContact | _] = Bucket, LeastContact, #kbucket{k = K}) when length(Bucket) =:= K ->
+    Bucket;
 put_on([LeastContact | PartialBucket] = Bucket, Contact, #kbucket{k = K, peer = Peer}) when length(Bucket) =:= K ->
     case peer:check_link(LeastContact, Peer) of
-        ok -> Bucket;
+        ok -> io:format("[~p, ~p]~n", [LeastContact, Peer]), Bucket;
         ko -> put_on(PartialBucket, Contact, K)
     end;
 put_on(Bucket, Contact, _) ->

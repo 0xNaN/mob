@@ -78,12 +78,10 @@ alpha_find_collector(Alpha, Worker, Discovered, Active, Expired) ->
     end.
 
 discover_from(Contact, FindCall, FindWorker) ->
-    FindCall(Contact),
-    receive
-        {Contact, Result} ->
-            FindWorker ! {response_from, Contact, Result}
-    after ?TIMEOUT_REQUEST ->
-            FindWorker ! {timeout_from, Contact}
+    try FindCall(Contact) of
+      Result -> FindWorker ! {response_from, Contact, Result}
+    catch
+      exit:_ -> FindWorker ! {timeout_from, Contact}
     end.
 
 append_unique(FirstList, SecondList) ->

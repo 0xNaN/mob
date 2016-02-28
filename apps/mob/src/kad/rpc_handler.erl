@@ -24,21 +24,19 @@ handle_event({store, _From, _FromContact, [{Key, Value}]}, #peer{repository = Re
     gen_server:call(Repository, {set, {Key, Value}}),
     {ok, Peer};
 
-handle_event({find_closest_peers, From, FromContact, [Key]}, Peer) ->
-    #peer{mycontact = MyContact, kbucket = Kbucket} = Peer,
+handle_event({find_closest_peers, From, FromContact, [Key]}, #peer{kbucket = Kbucket} = Peer) ->
     ClosestPeers = kbucket:closest_contacts(Kbucket, Key),
     FilteredClosest = lists:delete(FromContact, ClosestPeers),
-    From ! {MyContact, FilteredClosest},
+    gen_server:reply(From, FilteredClosest),
     {ok, Peer};
 
-handle_event({find_value, From, FromContact, [Key]}, Peer) ->
-    #peer{mycontact = MyContact, repository = Repository} = Peer,
+handle_event({find_value, From, FromContact, [Key]}, #peer{repository = Repository} = Peer) ->
     case gen_server:call(Repository, {is_key, Key}) of
         false ->
             handle_event({find_closest_peers, From, FromContact, [Key]}, Peer);
         true ->
             Value = gen_server:call(Repository, {get, Key}),
-            From ! {MyContact, Value}
+            gen_server:reply(From, Value)
     end,
     {ok, Peer};
 
