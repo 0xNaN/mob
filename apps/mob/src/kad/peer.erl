@@ -6,12 +6,10 @@
 -export([ping/2]).
 -export([pong/2]).
 -export([iterative_find_peers/2]).
--export([iterative_store/2]).
--export([iterative_find_value/2]).
 -export([find_value_of/3]).
 -export([find_closest_peers/3]).
+-export([closest_peers/2]).
 -export([check_link/2]).
--export([join/2]).
 -export([store/3]).
 -export([hash_key/1]).
 
@@ -40,17 +38,11 @@ start(Id, K, Alpha) ->
 iterative_find_peers({PeerPid, _}, Key) ->
     gen_server:call(PeerPid, {iterative_find_peers, Key}).
 
-iterative_store({PeerPid, _}, {Key, Value}) ->
-    gen_server:call(PeerPid, {iterative_store, {Key, Value}}).
-
-iterative_find_value({PeerPid, _}, Key) ->
-    gen_server:call(PeerPid, {iterative_find_value, Key}).
-
 check_link({PeerPid, _}, WithPeer) ->
     gen_server:call(PeerPid, {check_link, WithPeer}).
 
-join({PeerPid, _}, BootstrapPeer) ->
-    gen_server:call(PeerPid, {join, BootstrapPeer}).
+closest_peers({PeerPid, _}, Key) ->
+    gen_server:call(PeerPid, {closest_peer, Key}).
 
 %% RPC
 
@@ -81,8 +73,10 @@ init([Id, KbucketPid, Alpha]) ->
 					  alpha = Alpha,
 		        rpc_handler = RpcHandler},
 
+    {ok, Rpc} = kad_rpc:start(),
+
     gen_event:add_handler(RpcHandler, rpc_handler, Peer),
-    {ok, Peer}.
+    {ok, Peer#peer{rpc = Rpc}}.
 
 handle_cast({rpc, RpcName, FromContact, Args}, Peer) ->
         log:peer(Peer, log:contact_to_field(FromContact, "from_contact"), "~p ~p", [RpcName, Args]),
@@ -104,6 +98,10 @@ handle_call({check_link, ToContact}, From, Peer) ->
         log:peer(Peer, log:contact_to_field(ToContact, "to"), "CHECK_LINK ~p", [ToContact]),
         handle_check_link(Peer, ToContact, From),
         {noreply, Peer};
+
+handle_call({closest_peer, Key}, _From, Peer) ->
+        Result = handle_closest_peer(Peer, Key),
+        {reply, Result, Peer};
 
 handle_call({iterative_find_peers, Key}, _From, Peer) ->
         log:peer(Peer, "ITERATIVE_FIND_PEERS ~p", [Key]),
@@ -143,6 +141,9 @@ code_change(_OldVsn, Peer, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+handle_closest_peer(#peer{kbucket = Kbucket}, Key) ->
+   kbucket:closest_contacts(Kbucket, Key).
 
 handle_iterative_store(#peer{mycontact = MyContact} = Peer, {Key, Value}) ->
     HashedKey = hash_key(Key),

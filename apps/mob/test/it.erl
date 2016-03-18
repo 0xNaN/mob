@@ -175,10 +175,12 @@ should_find_closest_peers_with_more_than_alpha_local_peer_test() ->
                  peer:iterative_find_peers(Peer, ClosestKey)).
 
 join_should_update_kbucket_of_bootstrap_peer_test() ->
+    {ok, Dht} = dht:start(3),
+
     {KbucketA, PeerA} = new_peer(1, ?K, ?ALPHA),
     {KbucketB, PeerB} = new_peer(2, ?K, ?ALPHA),
 
-    peer:join(PeerA, PeerB),
+    dht:join(Dht, PeerA, PeerB),
 
     ?assertEqual([PeerB], kbucket:get(KbucketA, 1)),
     ?assertEqual([PeerA], kbucket:get(KbucketB, 1)).
@@ -186,14 +188,16 @@ join_should_update_kbucket_of_bootstrap_peer_test() ->
  a_joining_peer_should_know_its_closest_neighbours_test() ->
      K = 3,
      Alpha = 3,
+     {ok, Dht} = dht:start(3),
+
      {KbucketA, PeerA} = new_peer(1, K, Alpha),
      {KbucketB, PeerB} = new_peer(9, K, Alpha),
      {KbucketC, PeerC} = new_peer(10, K, Alpha),
      {KbucketD, PeerD} = new_peer(2, K, Alpha),
 
-     peer:join(PeerA, PeerB),
-     peer:join(PeerC, PeerB),
-     peer:join(PeerD, PeerC),
+     dht:join(Dht, PeerA, PeerB),
+     dht:join(Dht, PeerC, PeerB),
+     dht:join(Dht, PeerD, PeerC),
 
      timer:sleep(100),
      ?assertEqual([PeerD],        kbucket:get(KbucketA, 1)),
@@ -216,6 +220,7 @@ should_store_a_key_on_closest_peers_test() ->
     Key     = key,
     HashKey = 16#A62F2225BF70BFACCBC7F1EF2A397836717377DE,
     Value   = "value",
+    {ok, Dht} = dht:start(3),
 
     % distance with HashKey
     % PeerA = 4, PeerB = 7, PeerC = 14, PeerD = ~2^159
@@ -224,14 +229,14 @@ should_store_a_key_on_closest_peers_test() ->
     PeerC = peer:start(16#A62F2225BF70BFACCBC7F1EF2A397836717377D0, K, Alpha),
     PeerD = peer:start(16#F62F2225BF70BFACCBC7F1EF2A397836717377DE, K, Alpha),
 
-    peer:join(PeerA, PeerC),
+    dht:join(Dht, PeerA, PeerC),
     timer:sleep(100),
-    peer:join(PeerB, PeerC),
+    dht:join(Dht, PeerB, PeerC),
     timer:sleep(100),
-    peer:join(PeerD, PeerB),
+    dht:join(Dht, PeerD, PeerB),
     timer:sleep(100),
 
-    peer:iterative_store(PeerA, {Key, Value}),
+    dht:set(Dht, PeerA, {Key, Value}),
 
     ?assertEqual({found, Value}, peer:find_value_of(PeerA, HashKey, FakePeer)),
     ?assertEqual({found, Value}, peer:find_value_of(PeerC, HashKey, FakePeer)),
@@ -241,16 +246,18 @@ should_store_a_key_on_closest_peers_test() ->
 should_find_a_value_stored_in_itself_test() ->
     Key     = key,
     Value   = "value",
+    {ok, Dht} = dht:start(3),
 
     PeerA = peer:start(16#A62F2225BF70BFACCBC7F1EF2A397836717377DA, ?K, ?ALPHA),
-    peer:iterative_store(PeerA, {Key, Value}),
+    dht:set(Dht, PeerA, {Key, Value}),
 
     timer:sleep(50),
-    ?assertEqual({found, Value}, peer:iterative_find_value(PeerA, Key)).
+    ?assertEqual({found, Value}, dht:get(Dht, PeerA, Key)).
 
 should_find_a_value_stored_in_a_network_test() ->
     Key     = key,
     Value   = "value",
+    {ok, Dht} = dht:start(3),
 
     % distance with HashKey
     % PeerA = 4, PeerB = 7, PeerC = 14, PeerD = ~2^159
@@ -259,16 +266,16 @@ should_find_a_value_stored_in_a_network_test() ->
     PeerC = peer:start(16#A62F2225BF70BFACCBC7F1EF2A397836717377D0, ?K, ?ALPHA),
     PeerD = peer:start(16#F62F2225BF70BFACCBC7F1EF2A397836717377DE, ?K, ?ALPHA),
 
-    peer:join(PeerA, PeerC),
+    dht:join(Dht, PeerA, PeerC),
     timer:sleep(100),
-    peer:join(PeerB, PeerC),
+    dht:join(Dht, PeerB, PeerC),
     timer:sleep(100),
-    peer:join(PeerD, PeerB),
+    dht:join(Dht, PeerD, PeerB),
     timer:sleep(100),
 
-    peer:iterative_store(PeerA, {Key, Value}),
+    dht:set(Dht, PeerA, {Key, Value}),
 
-    ?assertEqual({found, Value}, peer:iterative_find_value(PeerD, Key)).
+    ?assertEqual({found, Value}, dht:get(Dht, PeerD, Key)).
 
 new_peer(Id, K, Alpha) ->
     Kbucket = kbucket:start(K, 4),
