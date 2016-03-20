@@ -5,13 +5,16 @@
 -export([start/3]).
 -export([ping/2]).
 -export([pong/2]).
--export([iterative_find_peers/2]).
 -export([find_value_of/3]).
 -export([find_closest_peers/3]).
--export([closest_peers/2]).
 -export([check_link/2]).
 -export([store/3]).
+-export([join/2]).
 -export([hash_key/1]).
+
+%% XXX for dht module
+-export([closest_contacts/2]).
+-export([k_closest_to/3]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -35,17 +38,16 @@ start(Id, K, Alpha) ->
     KbucketPid ! {set_peer, PeerContact},
     PeerContact.
 
-iterative_find_peers({PeerPid, _}, Key) ->
-    gen_server:call(PeerPid, {iterative_find_peers, Key}).
-
 check_link({PeerPid, _}, WithPeer) ->
     gen_server:call(PeerPid, {check_link, WithPeer}).
 
-closest_peers({PeerPid, _}, Key) ->
-    gen_server:call(PeerPid, {closest_peer, Key}).
+closest_contacts({PeerPid, _}, Key) ->
+    gen_server:call(PeerPid, {closest_contacts, Key}).
+
+k_closest_to({PeerPid, _}, Key, Contacts) ->
+    gen_server:call(PeerPid, {k_closest_to, Key, Contacts}).
 
 %% RPC
-
 store({PeerPid, _}, {Key, Value}, FromPeer) ->
     gen_server:cast(PeerPid, {rpc, store, FromPeer, [{Key, Value}]}).
 
@@ -60,6 +62,9 @@ ping({PeerPid, _}, FromPeer) ->
 
 pong({PeerPid, _}, FromPeer) ->
     gen_server:cast(PeerPid, {rpc, pong, FromPeer, []}).
+
+join({PeerPid, _}, BootstrapPeer) ->
+    gen_server:call(PeerPid, {join, BootstrapPeer}).
 
 %% Callbacks
 
@@ -99,35 +104,22 @@ handle_call({check_link, ToContact}, From, Peer) ->
         handle_check_link(Peer, ToContact, From),
         {noreply, Peer};
 
-handle_call({closest_peer, Key}, _From, Peer) ->
+handle_call({closest_contacts, Key}, _From, Peer) ->
         Result = handle_closest_peer(Peer, Key),
         {reply, Result, Peer};
 
-handle_call({iterative_find_peers, Key}, _From, Peer) ->
-        log:peer(Peer, "ITERATIVE_FIND_PEERS ~p", [Key]),
-        Result = handle_iterative_find_peers(Peer, Key),
+handle_call({k_closest_to, Key, Contacts}, _From, Peer = #peer{kbucket = Kbucket}) ->
+        Result = kbucket:k_closest_to(Kbucket, Key, Contacts),
         {reply, Result, Peer};
-
-handle_call({iterative_store, {Key, Value}}, _From, Peer) ->
-        log:peer(Peer, "ITERATIVE_STORE ~p ~p", [Key, Value]),
-        handle_iterative_store(Peer, {Key, Value}),
-        {reply, ok, Peer};
-
-handle_call({iterative_find_value, Key}, _From, Peer) ->
-        log:peer(Peer, "ITERATIVE_FIND_VALUE ~p", [Key]),
-        Value = handle_iterative_find_value(Peer, Key),
-        {reply, Value, Peer};
 
 handle_call({join, BootstrapPeer}, _From, Peer) ->
         log:peer(Peer, "JOIN ~p", [BootstrapPeer]),
-        kbucket:put(Peer#peer.kbucket, BootstrapPeer),
         handle_join(Peer, BootstrapPeer),
         {reply, ok, Peer};
 
 handle_call(_Request, _From, Peer) ->
         Reply = ok,
         {reply, Reply, Peer}.
-
 
 handle_info(_Info, Peer) ->
         {noreply, Peer}.
@@ -145,14 +137,12 @@ code_change(_OldVsn, Peer, _Extra) ->
 handle_closest_peer(#peer{kbucket = Kbucket}, Key) ->
    kbucket:closest_contacts(Kbucket, Key).
 
-handle_iterative_store(#peer{mycontact = MyContact} = Peer, {Key, Value}) ->
-    HashedKey = hash_key(Key),
-    ClosestPeers = handle_iterative_find_peers(Peer, HashedKey),
-    lists:foreach(fun(Contact) -> peer:store(Contact, {HashedKey, Value}, MyContact) end, ClosestPeers).
-
 handle_join(#peer{kbucket = Kbucket, mycontact = MyContact}, BootstrapPeer) ->
     {_, Id} = MyContact,
-    MyKClosest = peer:iterative_find_peers(BootstrapPeer, Id),
+    {ok, Dht} = dht:start(3),
+
+    kbucket:put(Kbucket, BootstrapPeer),
+    MyKClosest = dht:find_peers(Dht, BootstrapPeer, Id),
     lists:foreach(fun(Neighbor) ->
                       peer:ping(Neighbor, MyContact)
                   end, lists:delete(MyContact, MyKClosest)),
@@ -161,16 +151,6 @@ handle_join(#peer{kbucket = Kbucket, mycontact = MyContact}, BootstrapPeer) ->
 handle_check_link(#peer{rpc_handler = RpcHandler, mycontact = MyContact} = Peer, ToContact, From) ->
     gen_event:add_handler(RpcHandler, check_link_handler, [Peer, ToContact, From]),
     ping(ToContact, MyContact).
-
-handle_iterative_find_peers(#peer{kbucket = Kbucket, mycontact = MyContact, alpha = Alpha}, Key) ->
-    network:find_peers(MyContact, Kbucket, Key, Alpha).
-
-handle_iterative_find_value(#peer{kbucket = Kbucket, mycontact = MyContact, alpha = Alpha, repository = Repo}, Key) ->
-    HashedKey = hash_key(Key),
-    case repository:get(Repo, HashedKey) of
-        {found, Value} -> {found, Value};
-        _ ->  network:find_value(MyContact, Kbucket, HashedKey, Alpha)
-    end.
 
 hash_key(Key) ->
     HashedKey = crypto:hash(sha, atom_to_list(Key)),

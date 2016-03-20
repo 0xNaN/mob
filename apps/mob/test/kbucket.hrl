@@ -7,6 +7,7 @@
 
 start() ->
     meck:new(peer),
+    meck:new(dht),
     meck:expect(peer, start, fun(Id, Kbucket, Alpha) -> {self(), Id} end),
     K = 3,
     KbucketPid = kbucket:start(K, ?ID_LENGTH),
@@ -15,6 +16,7 @@ start() ->
     {KbucketPid, Peer}.
 
 teardown(_) ->
+    meck:unload(dht),
     meck:unload(peer).
 
 peer_suite_test_() ->
@@ -139,14 +141,15 @@ should_search_a_key_within_each_bucket_and_refresh_its_content({KbucketPid, Peer
     ThreeBucketContact = {self(),  5},
 
     AllContacts = [ZeroBucketContact, OneBucketContact, TwoBucketContact, ThreeBucketContact],
-    meck:expect(peer, iterative_find_peers, fun(_, Key) ->
-                                                case Key of
-                                                    12 -> AllContacts;
-                                                    15 -> AllContacts;
-                                                     9 -> AllContacts;
-                                                     5 -> AllContacts
-                                                end
-                                            end),
+    meck:expect(dht, start, fun(_) -> {ok, self()} end),
+    meck:expect(dht, find_peers, fun(_, _, Key) ->
+                                     case Key of
+                                          12 -> AllContacts;
+                                          15 -> AllContacts;
+                                           9 -> AllContacts;
+                                           5 -> AllContacts
+                                     end
+                                  end),
 
     kbucket:refresh(KbucketPid),
     timer:sleep(50),

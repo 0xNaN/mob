@@ -120,7 +120,8 @@ put_on(Bucket, Contact, _) ->
 
 refresh_bucket(Kbucket, BucketIndex, {_, PeerId} = Peer) ->
     Key = gen_key_within(BucketIndex, PeerId),
-    ClosestPeers = peer:iterative_find_peers(Peer, Key),
+    {ok, Dht} = dht:start(3),
+    ClosestPeers = dht:find_peers(Dht, Peer, Key),
     [kbucket:put(Kbucket, Contact) || Contact <- ClosestPeers].
 
 bucket(BucketIndex, Contacts) ->

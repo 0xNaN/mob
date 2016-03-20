@@ -11,6 +11,7 @@ should_find_the_closest_peer_for_a_given_key_test() ->
      Peer        = peer:start(2#1000, ?K, ?ALPHA),
      MiddlePeer  = peer:start(2#0010, ?K, ?ALPHA),
      ClosestPeer = peer:start(2#0001, ?K, ?ALPHA),
+     {ok, Dht} = dht:start(3),
 
      % check the links between peers to simulate a join
      %
@@ -19,9 +20,10 @@ should_find_the_closest_peer_for_a_given_key_test() ->
      peer:check_link(Peer, MiddlePeer),
      peer:check_link(MiddlePeer, ClosestPeer),
      ?assertEqual([ClosestPeer, MiddlePeer, Peer],
-                  peer:iterative_find_peers(Peer, ClosestKey)).
+                  dht:find_peers(Dht, Peer, ClosestKey)).
 
 should_find_the_closest_peers_not_directly_connected_test() ->
+    {ok, Dht} = dht:start(3),
     %% since the searched key is 0, the distance of a peer
     %% from the key is equals to the ID of the peer
     ClosestKey = 2#0000,
@@ -47,9 +49,10 @@ should_find_the_closest_peers_not_directly_connected_test() ->
     peer:check_link(LocalClosest, ClosestC),
 
     ?assertEqual([ClosestA, ClosestB, ClosestC],
-                 peer:iterative_find_peers(Peer, ClosestKey)).
+                 dht:find_peers(Dht, Peer, ClosestKey)).
 
 should_find_the_closest_peers_on_different_branch_not_directly_connetted_test() ->
+   {ok, Dht} = dht:start(3),
     %% since the searched key is 0, the distance of a peer
     %% from the key is equals to the ID of the peer
     ClosestKey = 2#0000,
@@ -78,9 +81,10 @@ should_find_the_closest_peers_on_different_branch_not_directly_connetted_test() 
     peer:check_link(LocalAway, ClosestA),
 
     ?assertEqual([ClosestA, ClosestB, ClosestC],
-                 peer:iterative_find_peers(Peer, ClosestKey)).
+                 dht:find_peers(Dht, Peer, ClosestKey)).
 
 should_find_the_closest_peers_also_with_its_directly_connected_peers_test() ->
+    {ok, Dht} = dht:start(3),
     ClosestKey = 2#0000,
     ClosestA = peer:start(2#0001, ?K, ?ALPHA),
     ClosestB = peer:start(2#0010, ?K, ?ALPHA),
@@ -105,9 +109,10 @@ should_find_the_closest_peers_also_with_its_directly_connected_peers_test() ->
     peer:check_link(LocalAway, ClosestA),
 
     ?assertEqual([ClosestA, ClosestB, LocalClosest],
-                 peer:iterative_find_peers(Peer, ClosestKey)).
+                 dht:find_peers(Dht, Peer, ClosestKey)).
 
 a_find_should_not_return_a_peer_that_goes_in_timeout_test() ->
+    {ok, Dht} = dht:start(3),
     ClosestKey = 2#0000,
     ClosestDown = peer:start(2#0001, ?K, ?ALPHA),
     ClosestB = peer:start(2#0010, ?K, ?ALPHA),
@@ -133,11 +138,11 @@ a_find_should_not_return_a_peer_that_goes_in_timeout_test() ->
     shutdown_peer(ClosestDown),
 
     ?assertEqual([ClosestB, ClosestC, LocalClosest],
-                 peer:iterative_find_peers(Peer, ClosestKey)).
+                 dht:find_peers(Dht, Peer, ClosestKey)).
 
 should_find_closest_peers_with_more_than_alpha_local_peer_test() ->
     K = 4,
-
+    {ok, Dht} = dht:start(3),
     ClosestKey = 2#0000,
     ClosestA = peer:start(2#0001, K, ?ALPHA),
 
@@ -172,15 +177,14 @@ should_find_closest_peers_with_more_than_alpha_local_peer_test() ->
     peer:check_link(LocalAway, ClosestA),
 
     ?assertEqual([ClosestA, LocalClosestA, LocalClosestB, LocalClosestC],
-                 peer:iterative_find_peers(Peer, ClosestKey)).
+                 dht:find_peers(Dht, Peer, ClosestKey)).
 
 join_should_update_kbucket_of_bootstrap_peer_test() ->
-    {ok, Dht} = dht:start(3),
 
     {KbucketA, PeerA} = new_peer(1, ?K, ?ALPHA),
     {KbucketB, PeerB} = new_peer(2, ?K, ?ALPHA),
 
-    dht:join(Dht, PeerA, PeerB),
+    peer:join(PeerA, PeerB),
 
     ?assertEqual([PeerB], kbucket:get(KbucketA, 1)),
     ?assertEqual([PeerA], kbucket:get(KbucketB, 1)).
@@ -188,16 +192,15 @@ join_should_update_kbucket_of_bootstrap_peer_test() ->
  a_joining_peer_should_know_its_closest_neighbours_test() ->
      K = 3,
      Alpha = 3,
-     {ok, Dht} = dht:start(3),
 
      {KbucketA, PeerA} = new_peer(1, K, Alpha),
      {KbucketB, PeerB} = new_peer(9, K, Alpha),
      {KbucketC, PeerC} = new_peer(10, K, Alpha),
      {KbucketD, PeerD} = new_peer(2, K, Alpha),
 
-     dht:join(Dht, PeerA, PeerB),
-     dht:join(Dht, PeerC, PeerB),
-     dht:join(Dht, PeerD, PeerC),
+     peer:join(PeerA, PeerB),
+     peer:join(PeerC, PeerB),
+     peer:join(PeerD, PeerC),
 
      timer:sleep(100),
      ?assertEqual([PeerD],        kbucket:get(KbucketA, 1)),
@@ -229,11 +232,11 @@ should_store_a_key_on_closest_peers_test() ->
     PeerC = peer:start(16#A62F2225BF70BFACCBC7F1EF2A397836717377D0, K, Alpha),
     PeerD = peer:start(16#F62F2225BF70BFACCBC7F1EF2A397836717377DE, K, Alpha),
 
-    dht:join(Dht, PeerA, PeerC),
+    peer:join(PeerA, PeerC),
     timer:sleep(100),
-    dht:join(Dht, PeerB, PeerC),
+    peer:join(PeerB, PeerC),
     timer:sleep(100),
-    dht:join(Dht, PeerD, PeerB),
+    peer:join(PeerD, PeerB),
     timer:sleep(100),
 
     dht:set(Dht, PeerA, {Key, Value}),
@@ -266,11 +269,11 @@ should_find_a_value_stored_in_a_network_test() ->
     PeerC = peer:start(16#A62F2225BF70BFACCBC7F1EF2A397836717377D0, ?K, ?ALPHA),
     PeerD = peer:start(16#F62F2225BF70BFACCBC7F1EF2A397836717377DE, ?K, ?ALPHA),
 
-    dht:join(Dht, PeerA, PeerC),
+    peer:join(PeerA, PeerC),
     timer:sleep(100),
-    dht:join(Dht, PeerB, PeerC),
+    peer:join(PeerB, PeerC),
     timer:sleep(100),
-    dht:join(Dht, PeerD, PeerB),
+    peer:join(PeerD, PeerB),
     timer:sleep(100),
 
     dht:set(Dht, PeerA, {Key, Value}),
