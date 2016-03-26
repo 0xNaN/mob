@@ -3,15 +3,14 @@
 
 -define(PEER_ID, 13).
 -define(ID_LENGTH, 4).
--define(ALPHA, 3).
 
 start() ->
     meck:new(peer),
     meck:new(dht),
-    meck:expect(peer, start, fun(Id, Kbucket, Alpha) -> {self(), Id} end),
+    meck:expect(peer, start, fun(Id, Kbucket) -> {self(), Id} end),
     K = 3,
     KbucketPid = kbucket:start(K, ?ID_LENGTH),
-    Peer = peer:start(?PEER_ID, KbucketPid, ?ALPHA),
+    Peer = peer:start(?PEER_ID, KbucketPid),
     kbucket:set_peer(KbucketPid, Peer),
     {KbucketPid, Peer}.
 
@@ -79,7 +78,7 @@ ping_the_least_seen_contact_when_a_bucket_is_full_and_remove_if_doesnt_respond({
     % these defines fakes contacts.
     % the IDs are such that its BucketIndex are the
     % same if stored in a peer with 2#1101 ID.
-    FourPeerContact  = peer:start(2#1001, 3, ?ALPHA),
+    FourPeerContact  = peer:start(2#1001, 3),
     FivePeerContact  = {self(), 2#1000},
     SixPeerContact   = {self(), 2#1011},
     SevenPeerContact = {self(), 2#1010},
@@ -95,7 +94,7 @@ ping_the_least_seen_contact_when_a_bucket_is_full_and_remove_if_doesnt_respond({
                    kbucket:get(KbucketPid, 2))].
 
 ping_the_least_seen_contact_when_a_bucket_is_full_and_mantain_it_if_respond({KbucketPid, _}) ->
-    FourPeerContact  = peer:start(2#1001, 3, ?ALPHA),
+    FourPeerContact  = peer:start(2#1001, 3),
     FivePeerContact  = {self(), 2#1000},
     SixPeerContact   = {self(), 2#1011},
     SevenPeerContact = {self(), 2#1010},

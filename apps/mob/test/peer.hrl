@@ -7,8 +7,7 @@ start() ->
     meck:new(kbucket, [non_strict]),
     KbucketPid = self(),
     Id = 1,
-    Alpha = 3,
-    Peer = peer:start(Id, KbucketPid, Alpha),
+    Peer = peer:start(Id, KbucketPid),
     {Peer, KbucketPid}.
 
 teardown({_, _}) ->

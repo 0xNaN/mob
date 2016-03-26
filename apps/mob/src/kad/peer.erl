@@ -2,18 +2,19 @@
 
 -behaviour(gen_server).
 
--export([start/3]).
+-export([start/2]).
 -export([ping/2]).
 -export([pong/2]).
 -export([find_value_of/3]).
 -export([find_closest_peers/3]).
 -export([check_link/2]).
 -export([store/3]).
--export([join/2]).
 -export([hash_key/1]).
 
 %% XXX for dht module
 -export([closest_contacts/2]).
+-export([refresh/1]).
+-export([learn/2]).
 -export([k_closest_to/3]).
 
 %% gen_server callbacks
@@ -28,12 +29,12 @@
 
 -define (KEY_LENGTH, 160).
 
-start(Id, KbucketPid, Alpha) when is_pid(KbucketPid) ->
-    {ok, PeerPid} = gen_server:start(?MODULE, [Id, KbucketPid, Alpha], []),
+start(Id, KbucketPid) when is_pid(KbucketPid) ->
+    {ok, PeerPid} = gen_server:start(?MODULE, [Id, KbucketPid], []),
     {PeerPid, Id};
-start(Id, K, Alpha) ->
+start(Id, K) ->
     KbucketPid = kbucket:start(K, ?KEY_LENGTH),
-    {ok, PeerPid} = gen_server:start(?MODULE, [Id, KbucketPid, Alpha], []),
+    {ok, PeerPid} = gen_server:start(?MODULE, [Id, KbucketPid], []),
     PeerContact = {PeerPid, Id},
     KbucketPid ! {set_peer, PeerContact},
     PeerContact.
@@ -46,6 +47,12 @@ closest_contacts({PeerPid, _}, Key) ->
 
 k_closest_to({PeerPid, _}, Key, Contacts) ->
     gen_server:call(PeerPid, {k_closest_to, Key, Contacts}).
+
+learn({PeerPid, _}, Contact) ->
+    gen_server:call(PeerPid, {learn, Contact}).
+
+refresh({PeerPid, _}) ->
+    gen_server:call(PeerPid, {refresh}).
 
 %% RPC
 store({PeerPid, _}, {Key, Value}, FromPeer) ->
@@ -63,25 +70,19 @@ ping({PeerPid, _}, FromPeer) ->
 pong({PeerPid, _}, FromPeer) ->
     gen_server:cast(PeerPid, {rpc, pong, FromPeer, []}).
 
-join({PeerPid, _}, BootstrapPeer) ->
-    gen_server:call(PeerPid, {join, BootstrapPeer}).
-
 %% Callbacks
 
-init([Id, KbucketPid, Alpha]) ->
+init([Id, KbucketPid]) ->
     {ok, RpcHandler} = gen_event:start(),
     {ok, Repository} = gen_server:start(repository, [], []),
 
     Peer = #peer{repository = Repository,
 					kbucket = KbucketPid,
 		          mycontact = {self(), Id},
-					  alpha = Alpha,
 		        rpc_handler = RpcHandler},
 
-    {ok, Rpc} = kad_rpc:start(),
-
     gen_event:add_handler(RpcHandler, rpc_handler, Peer),
-    {ok, Peer#peer{rpc = Rpc}}.
+    {ok, Peer}.
 
 handle_cast({rpc, RpcName, FromContact, Args}, Peer) ->
         log:peer(Peer, log:contact_to_field(FromContact, "from_contact"), "~p ~p", [RpcName, Args]),
@@ -112,10 +113,14 @@ handle_call({k_closest_to, Key, Contacts}, _From, Peer = #peer{kbucket = Kbucket
         Result = kbucket:k_closest_to(Kbucket, Key, Contacts),
         {reply, Result, Peer};
 
-handle_call({join, BootstrapPeer}, _From, Peer) ->
-        log:peer(Peer, "JOIN ~p", [BootstrapPeer]),
-        handle_join(Peer, BootstrapPeer),
-        {reply, ok, Peer};
+handle_call({refresh}, _From, Peer = #peer{kbucket = Kbucket}) ->
+        Result = kbucket:refresh(Kbucket),
+        {reply, Result, Peer};
+
+handle_call({learn, Contact}, _From, Peer = #peer{kbucket = Kbucket}) ->
+        Reply = ok,
+        kbucket:put(Kbucket, Contact),
+        {reply, Reply, Peer};
 
 handle_call(_Request, _From, Peer) ->
         Reply = ok,
@@ -136,17 +141,6 @@ code_change(_OldVsn, Peer, _Extra) ->
 
 handle_closest_peer(#peer{kbucket = Kbucket}, Key) ->
    kbucket:closest_contacts(Kbucket, Key).
-
-handle_join(#peer{kbucket = Kbucket, mycontact = MyContact}, BootstrapPeer) ->
-    {_, Id} = MyContact,
-    {ok, Dht} = dht:start(3),
-
-    kbucket:put(Kbucket, BootstrapPeer),
-    MyKClosest = dht:find_peers(Dht, BootstrapPeer, Id),
-    lists:foreach(fun(Neighbor) ->
-                      peer:ping(Neighbor, MyContact)
-                  end, lists:delete(MyContact, MyKClosest)),
-    kbucket:refresh(Kbucket).
 
 handle_check_link(#peer{rpc_handler = RpcHandler, mycontact = MyContact} = Peer, ToContact, From) ->
     gen_event:add_handler(RpcHandler, check_link_handler, [Peer, ToContact, From]),

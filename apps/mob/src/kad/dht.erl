@@ -1,5 +1,4 @@
 -module(dht).
-
 -behaviour(gen_server).
 
 %% API
@@ -57,8 +56,13 @@ handle_call({find_peers, Peer, HashedKey}, _From, State = #state{alpha = Alpha})
     Reply = network:find_peers(Peer, HashedKey, Alpha),
     {reply, Reply, State};
 
-handle_call({join, {PeerPid, _}, BootstrapPeer}, _From, State) ->
-    Reply = gen_server:call(PeerPid, {join, BootstrapPeer}),
+handle_call({join, Peer = {_PeerPid, PeerId}, BootstrapPeer}, _From, State = #state{alpha = Alpha}) ->
+    %TODO: here we have to check if network:find_peers() returns a peer with the same id of
+    % PeerId, if yes we have to deny the join since a peer must have a unique ID
+    lists:foreach(fun(Closest) -> peer:ping(Peer, Closest) end, network:find_peers(BootstrapPeer, PeerId, Alpha)),
+    peer:learn(Peer, BootstrapPeer),
+    peer:refresh(Peer),
+    Reply = ok,
     {reply, Reply, State}.
 
 handle_cast(_Msg, State) ->
