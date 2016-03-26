@@ -3,30 +3,30 @@
 
 -define (TIMEOUT_REQUEST, 500).
 
-find_peers(ExecutorContact, Key, Alpha) ->
+find_peers(ExecutorContact, Key, K, Alpha) ->
     FindPeersCall = fun(Contact) -> peer:find_closest_peers(Contact, Key, ExecutorContact) end,
     BaseKnowlegeContact = peer:closest_to(ExecutorContact, Key),
-    spawn(network, find_monitor, [self(), ExecutorContact, Key, BaseKnowlegeContact, FindPeersCall, Alpha]),
+    spawn(network, find_monitor, [self(), ExecutorContact, Key, BaseKnowlegeContact, FindPeersCall, K, Alpha]),
     receive
         {ok, Peers} -> Peers
     end.
 
-find_value(ExecutorContact,  Key, Alpha) ->
+find_value(ExecutorContact, Key, K, Alpha) ->
     FindValueCall = fun(Contact) -> peer:find_value_of(Contact, Key, ExecutorContact) end,
     BaseKnowlegeContact = peer:closest_to(ExecutorContact, Key),
-    spawn(network, find_monitor, [self(), ExecutorContact, Key, BaseKnowlegeContact, FindValueCall, Alpha]),
+    spawn(network, find_monitor, [self(), ExecutorContact, Key, BaseKnowlegeContact, FindValueCall, K, Alpha]),
     receive
         {ok, Peers} -> Peers
     end.
 
-find_monitor(Parent, ExecutorContact, Key, BaseKnowlegeContact, FindCall, Alpha) ->
-    Ret = find_worker(ExecutorContact, BaseKnowlegeContact, Key, [ExecutorContact], [], FindCall, Alpha),
+find_monitor(Parent, ExecutorContact, Key, BaseKnowlegeContact, FindCall, K, Alpha) ->
+    Ret = find_worker(ExecutorContact, BaseKnowlegeContact, Key, [ExecutorContact], [], FindCall, K, Alpha),
     Parent ! {ok, Ret}.
 
 
-find_worker(_ExecutorContact, [], _Key, BestActive, _Contacted, _FindCall, _Alpha) ->
+find_worker(_ExecutorContact, [], _Key, BestActive, _Contacted, _FindCall, _K, _Alpha) ->
     BestActive;
-find_worker(ExecutorContact, KnowlegeContacts, Key, BestActive, Contacted, FindCall, Alpha) ->
+find_worker(ExecutorContact, KnowlegeContacts, Key, BestActive, Contacted, FindCall, K, Alpha) ->
     Selected = lists:sublist(KnowlegeContacts -- Contacted, Alpha),
     %% spawn_link
     AlphaFindCollector = spawn(network, alpha_find_collector,
@@ -41,24 +41,24 @@ find_worker(ExecutorContact, KnowlegeContacts, Key, BestActive, Contacted, FindC
             NewContacted = append_unique(Contacted, Expired),
             NewKnowlege = KnowlegeContacts -- Contacted,
             UnaskedNumber = length(NewKnowlege),
-            find_worker(ExecutorContact, NewKnowlege, Key, BestActive, NewContacted, FindCall, UnaskedNumber);
+            find_worker(ExecutorContact, NewKnowlege, Key, BestActive, NewContacted, FindCall, K, UnaskedNumber);
 
         {ok, Discovered, Active, Expired} ->
             NewContacted = append_unique(Contacted,  Active ++ Expired),
             CompleteKnowlege = append_unique(Discovered, (KnowlegeContacts -- NewContacted)),
-            SortedKnowlege = peer:k_closest_to(ExecutorContact, Key, CompleteKnowlege),
+            SortedKnowlege = k_closest_to(K, Key, CompleteKnowlege),
 
 
-            [CandidateClosest | _ ] = peer:k_closest_to(ExecutorContact, Key, Active),
-            [ClosestSoFar | _] = peer:k_closest_to(ExecutorContact, Key, BestActive),
+            [CandidateClosest | _ ] = k_closest_to(K, Key, Active),
+            [ClosestSoFar | _] = k_closest_to(K, Key, BestActive),
 
-            NewBestActive = peer:k_closest_to(ExecutorContact, Key, append_unique(Active, BestActive)),
+            NewBestActive = k_closest_to(K, Key, append_unique(Active, BestActive)),
             UnaskedNumber = length(KnowlegeContacts),
             case kbucket:is_closest(CandidateClosest, ClosestSoFar, Key) of
                 true ->
-                    find_worker(ExecutorContact, SortedKnowlege, Key, NewBestActive, NewContacted, FindCall, Alpha);
+                    find_worker(ExecutorContact, SortedKnowlege, Key, NewBestActive, NewContacted, FindCall, K, Alpha);
                 false ->
-                    find_worker(ExecutorContact, SortedKnowlege, Key, NewBestActive, NewContacted, FindCall, UnaskedNumber)
+                    find_worker(ExecutorContact, SortedKnowlege, Key, NewBestActive, NewContacted, FindCall, K, UnaskedNumber)
             end;
 
          {ok, found, Value} ->
@@ -88,3 +88,7 @@ discover_from(Contact, FindCall, FindWorker) ->
 append_unique(FirstList, SecondList) ->
     List = lists:append(FirstList, SecondList),
     sets:to_list(sets:from_list(List)).
+
+k_closest_to(K, Key, Contacts) ->
+    SortedContacts = kbucket:sort_on(Key, Contacts),
+    lists:sublist(SortedContacts, K).

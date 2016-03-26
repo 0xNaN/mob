@@ -14,9 +14,6 @@
 -export([store/3]).
 -export([hash_key/1]).
 
-%% XXX for dht module
--export([k_closest_to/3]).
-
 %% gen_server callbacks
 -export([init/1,
          handle_call/3,
@@ -44,9 +41,6 @@ check_link({PeerPid, _}, WithPeer) ->
 
 closest_to({PeerPid, _}, Key) ->
     gen_server:call(PeerPid, {closest_to, Key}).
-
-k_closest_to({PeerPid, _}, Key, Contacts) ->
-    gen_server:call(PeerPid, {k_closest_to, Key, Contacts}).
 
 learn({PeerPid, _}, Contact) ->
     gen_server:cast(PeerPid, {learn, Contact}).
@@ -114,9 +108,9 @@ handle_call({closest_to, Key}, _From, Peer) ->
         Result = handle_closest_to(Peer, Key),
         {reply, Result, Peer};
 
-handle_call({k_closest_to, Key, Contacts}, _From, Peer = #peer{kbucket = Kbucket}) ->
-        Result = kbucket:k_closest_to(Kbucket, Key, Contacts),
-        {reply, Result, Peer};
+handle_call({kbucket}, _From, Peer = #peer{kbucket = Kbucket}) ->
+        Reply = Kbucket,
+        {reply, Reply, Peer};
 
 handle_call({refresh}, _From, Peer = #peer{kbucket = Kbucket}) ->
         Result = kbucket:refresh(Kbucket),

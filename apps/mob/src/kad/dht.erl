@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start/1]).
+-export([start/2]).
 -export([get/3]).
 -export([set/3]).
 -export([find_peers/3]).
@@ -16,10 +16,10 @@
      terminate/2,
      code_change/3]).
 
--record(state, {alpha}).
+-record(state, {k, alpha}).
 
-start(Alpha) ->
-    gen_server:start(?MODULE, [Alpha], []).
+start(K, Alpha) ->
+    gen_server:start(?MODULE, [K, Alpha], []).
 
 get(DhtPid, Peer, Key) ->
     gen_server:call(DhtPid, {get, Peer, Key}).
@@ -37,29 +37,29 @@ join(DhtPid, Peer, BootstrapPeer) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Alpha]) ->
-    {ok, #state{alpha = Alpha}}.
+init([K, Alpha]) ->
+    {ok, #state{k = K, alpha = Alpha}}.
 
-handle_call({get, Peer, Key}, _From, State = #state{alpha = Alpha}) ->
+handle_call({get, Peer, Key}, _From, State = #state{k = K, alpha = Alpha}) ->
     HashedKey = peer:hash_key(Key),
-    Reply = network:find_value(Peer, HashedKey, Alpha),
+    Reply = network:find_value(Peer, HashedKey, K, Alpha),
     {reply, Reply, State};
 
-handle_call({set, Peer, _Pair = {Key, Value}}, _From, State = #state{alpha = Alpha}) ->
+handle_call({set, Peer, _Pair = {Key, Value}}, _From, State = #state{k = K, alpha = Alpha}) ->
     HashedKey = peer:hash_key(Key),
-    ClosestPeers = network:find_peers(Peer, HashedKey, Alpha),
+    ClosestPeers = network:find_peers(Peer, HashedKey, K, Alpha),
     lists:foreach(fun(Contact) -> peer:store(Contact, {HashedKey, Value}, Peer) end, ClosestPeers),
     Reply = ok,
     {reply, Reply, State};
 
-handle_call({find_peers, Peer, HashedKey}, _From, State = #state{alpha = Alpha}) ->
-    Reply = network:find_peers(Peer, HashedKey, Alpha),
+handle_call({find_peers, Peer, HashedKey}, _From, State = #state{k = K, alpha = Alpha}) ->
+    Reply = network:find_peers(Peer, HashedKey, K, Alpha),
     {reply, Reply, State};
 
-handle_call({join, Peer = {_PeerPid, PeerId}, BootstrapPeer}, _From, State = #state{alpha = Alpha}) ->
+handle_call({join, Peer = {_PeerPid, PeerId}, BootstrapPeer}, _From, State = #state{k = K, alpha = Alpha}) ->
     %TODO: here we have to check if network:find_peers() returns a peer with the same id of
     % PeerId, if yes we have to deny the join since a peer must have a unique ID
-    lists:foreach(fun(Closest) -> peer:ping(Peer, Closest) end, network:find_peers(BootstrapPeer, PeerId, Alpha)),
+    lists:foreach(fun(Closest) -> peer:ping(Peer, Closest) end, network:find_peers(BootstrapPeer, PeerId, K, Alpha)),
     peer:learn(Peer, BootstrapPeer),
     peer:refresh(Peer),
     Reply = ok,

@@ -4,10 +4,10 @@
 -export([put/2]).
 -export([set_peer/2]).
 -export([is_closest/3]).
--export([k_closest_to/3]).
 -export([closest_contacts/2]).
 -export([refresh/1]).
--export([refresh_bucket/3]).
+-export([refresh_bucket/4]).
+-export([sort_on/2]).
 
 -type contact() :: {pid(), integer()} .
 
@@ -37,13 +37,6 @@ closest_contacts(KbucketPid, Key) ->
         {KbucketPid, Contacts} -> Contacts
     end.
 
-k_closest_to(KbucketPid, Key, Contacts) ->
-    KbucketPid ! {k_closest_to, self(), Key, Contacts},
-    receive
-        {KbucketPid, Result} ->
-            Result
-    end.
-
 refresh(Kbucket) ->
     Kbucket ! {refresh, self()},
     receive
@@ -68,11 +61,6 @@ loop(#kbucket{keylength = Keylength, peer = Peer, contacts = Contacts} = Kbucket
         {set_peer, PeerContact} ->
             NewKbucket = Kbucket#kbucket{peer = PeerContact},
             loop(NewKbucket);
-        {k_closest_to, From, Key, ListOfContacts} ->
-            log:kbucket(Kbucket, log:pid_to_field(From, "from"), "K_CLOSEST_TO ~p ~p", [Key, ListOfContacts]),
-            Result = handle_k_closest_to(Kbucket, Key, ListOfContacts),
-            From ! {self(), Result},
-            loop(Kbucket);
         {refresh, From} ->
             log:kbucket(Kbucket, log:pid_to_field(From, "from"),  "REFRESH"),
             handle_refresh(Kbucket, Keylength),
@@ -82,15 +70,11 @@ loop(#kbucket{keylength = Keylength, peer = Peer, contacts = Contacts} = Kbucket
             loop(Kbucket)
     end.
 
-handle_k_closest_to(#kbucket{k = K}, Key, ListOfContacts) ->
-    SortedContacts = sort_on(Key, ListOfContacts),
-    lists:sublist(SortedContacts, K).
-
-handle_refresh(#kbucket{peer = Peer, contacts = Contacts}, Keylength) ->
+handle_refresh(#kbucket{peer = Peer, contacts = Contacts, k = K}, Keylength) ->
     StartingBucket = first_occupied_bucket(Contacts) + 1,
     EndBucket = Keylength - 1,
     lists:foreach(fun(Index) ->
-                    spawn(kbucket, refresh_bucket, [self(), Index, Peer])
+                    spawn(kbucket, refresh_bucket, [self(), K, Index, Peer])
                   end, lists:seq(StartingBucket, EndBucket)).
 
 handle_closest_contacts(#kbucket{k = K, contacts = Contacts}, Key) ->
@@ -118,9 +102,9 @@ put_on(Bucket, Contact, _) ->
     CleanedBucket = lists:delete(Contact, Bucket),
     lists:append(CleanedBucket, [Contact]).
 
-refresh_bucket(Kbucket, BucketIndex, {_, PeerId} = Peer) ->
+refresh_bucket(Kbucket, K, BucketIndex, {_, PeerId} = Peer) ->
     Key = gen_key_within(BucketIndex, PeerId),
-    {ok, Dht} = dht:start(3),
+    {ok, Dht} = dht:start(K, 3),
     ClosestPeers = dht:find_peers(Dht, Peer, Key),
     [kbucket:put(Kbucket, Contact) || Contact <- ClosestPeers].
 

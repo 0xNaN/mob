@@ -140,7 +140,7 @@ should_search_a_key_within_each_bucket_and_refresh_its_content({KbucketPid, Peer
     ThreeBucketContact = {self(),  5},
 
     AllContacts = [ZeroBucketContact, OneBucketContact, TwoBucketContact, ThreeBucketContact],
-    meck:expect(dht, start, fun(_) -> {ok, self()} end),
+    meck:expect(dht, start, fun(_K, _Alpha) -> {ok, self()} end),
     meck:expect(dht, find_peers, fun(_, _, Key) ->
                                      case Key of
                                           12 -> AllContacts;
