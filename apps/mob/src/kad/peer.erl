@@ -12,7 +12,7 @@
 -export([hash_key/1]).
 
 %% XXX for dht module
--export([closest_contacts/2]).
+-export([closest_to/2]).
 -export([refresh/1]).
 -export([learn/2]).
 -export([k_closest_to/3]).
@@ -42,8 +42,8 @@ start(Id, K) ->
 check_link({PeerPid, _}, WithPeer) ->
     gen_server:call(PeerPid, {check_link, WithPeer}).
 
-closest_contacts({PeerPid, _}, Key) ->
-    gen_server:call(PeerPid, {closest_contacts, Key}).
+closest_to({PeerPid, _}, Key) ->
+    gen_server:call(PeerPid, {closest_to, Key}).
 
 k_closest_to({PeerPid, _}, Key, Contacts) ->
     gen_server:call(PeerPid, {k_closest_to, Key, Contacts}).
@@ -105,8 +105,8 @@ handle_call({check_link, ToContact}, From, Peer) ->
         handle_check_link(Peer, ToContact, From),
         {noreply, Peer};
 
-handle_call({closest_contacts, Key}, _From, Peer) ->
-        Result = handle_closest_peer(Peer, Key),
+handle_call({closest_to, Key}, _From, Peer) ->
+        Result = handle_closest_to(Peer, Key),
         {reply, Result, Peer};
 
 handle_call({k_closest_to, Key, Contacts}, _From, Peer = #peer{kbucket = Kbucket}) ->
@@ -139,7 +139,7 @@ code_change(_OldVsn, Peer, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-handle_closest_peer(#peer{kbucket = Kbucket}, Key) ->
+handle_closest_to(#peer{kbucket = Kbucket}, Key) ->
    kbucket:closest_contacts(Kbucket, Key).
 
 handle_check_link(#peer{rpc_handler = RpcHandler, mycontact = MyContact} = Peer, ToContact, From) ->

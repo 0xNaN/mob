@@ -5,7 +5,7 @@
 
 find_peers(ExecutorContact, Key, Alpha) ->
     FindPeersCall = fun(Contact) -> peer:find_closest_peers(Contact, Key, ExecutorContact) end,
-    BaseKnowlegeContact = peer:closest_contacts(ExecutorContact, Key),
+    BaseKnowlegeContact = peer:closest_to(ExecutorContact, Key),
     spawn(network, find_monitor, [self(), ExecutorContact, Key, BaseKnowlegeContact, FindPeersCall, Alpha]),
     receive
         {ok, Peers} -> Peers
@@ -13,7 +13,7 @@ find_peers(ExecutorContact, Key, Alpha) ->
 
 find_value(ExecutorContact,  Key, Alpha) ->
     FindValueCall = fun(Contact) -> peer:find_value_of(Contact, Key, ExecutorContact) end,
-    BaseKnowlegeContact = peer:closest_contacts(ExecutorContact, Key),
+    BaseKnowlegeContact = peer:closest_to(ExecutorContact, Key),
     spawn(network, find_monitor, [self(), ExecutorContact, Key, BaseKnowlegeContact, FindValueCall, Alpha]),
     receive
         {ok, Peers} -> Peers
