@@ -3,6 +3,9 @@
 -behaviour(gen_server).
 
 -export([start/2]).
+-export([closest_to/2]).
+-export([refresh/1]).
+-export([learn/2]).
 -export([ping/2]).
 -export([pong/2]).
 -export([find_value_of/3]).
@@ -12,9 +15,6 @@
 -export([hash_key/1]).
 
 %% XXX for dht module
--export([closest_to/2]).
--export([refresh/1]).
--export([learn/2]).
 -export([k_closest_to/3]).
 
 %% gen_server callbacks
@@ -49,7 +49,7 @@ k_closest_to({PeerPid, _}, Key, Contacts) ->
     gen_server:call(PeerPid, {k_closest_to, Key, Contacts}).
 
 learn({PeerPid, _}, Contact) ->
-    gen_server:call(PeerPid, {learn, Contact}).
+    gen_server:cast(PeerPid, {learn, Contact}).
 
 refresh({PeerPid, _}) ->
     gen_server:call(PeerPid, {refresh}).
@@ -90,6 +90,11 @@ handle_cast({rpc, RpcName, FromContact, Args}, Peer) ->
         kbucket:put(Peer#peer.kbucket, FromContact),
         ok = gen_event:notify(Peer#peer.rpc_handler, {RpcName, not_useful, FromContact, Args}),
         {noreply, Peer};
+
+handle_cast({learn, Contact}, Peer = #peer{kbucket = Kbucket}) ->
+        kbucket:put(Kbucket, Contact),
+        {noreply, Peer};
+
 handle_cast(_Msg, Peer) ->
         {noreply, Peer}.
 
@@ -116,11 +121,6 @@ handle_call({k_closest_to, Key, Contacts}, _From, Peer = #peer{kbucket = Kbucket
 handle_call({refresh}, _From, Peer = #peer{kbucket = Kbucket}) ->
         Result = kbucket:refresh(Kbucket),
         {reply, Result, Peer};
-
-handle_call({learn, Contact}, _From, Peer = #peer{kbucket = Kbucket}) ->
-        Reply = ok,
-        kbucket:put(Kbucket, Contact),
-        {reply, Reply, Peer};
 
 handle_call(_Request, _From, Peer) ->
         Reply = ok,
