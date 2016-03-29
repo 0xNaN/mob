@@ -3,86 +3,103 @@
 
 -define (TIMEOUT_REQUEST, 500).
 
-find_peers(ExecutorContact, Key, K, Alpha) ->
-    FindPeersCall = fun(Contact) -> peer:find_closest_peers(Contact, Key, ExecutorContact) end,
-    BaseKnowlegeContact = peer:closest_to(ExecutorContact, Key),
-    spawn(network, find_monitor, [self(), ExecutorContact, Key, BaseKnowlegeContact, FindPeersCall, K, Alpha]),
+-record(state, { knowledge, %% MUST be always ordered ASC, max size K
+				 active,    %% MUST be always ordered ASC, max size K
+				 contacted
+				}).
+
+find_peers(Peer, Key, K, Alpha) ->
+    FindPeersCall = fun(Contact) -> peer:find_closest_peers(Contact, Key, Peer) end,
+    find(Peer, Key, K, Alpha, FindPeersCall).
+
+find_value(Peer, Key, K, Alpha) ->
+    FindValueCall = fun(Contact) -> peer:find_value_of(Contact, Key, Peer) end,
+    find(Peer, Key, K, Alpha, FindValueCall).
+
+find(Peer, Key, K, Alpha, FindCall) ->
+    spawn(network, do_find, [self(), Peer, Key, FindCall, K, Alpha]),
     receive
-        {ok, Peers} -> Peers
+        {ok, Reply} -> Reply
     end.
 
-find_value(ExecutorContact, Key, K, Alpha) ->
-    FindValueCall = fun(Contact) -> peer:find_value_of(Contact, Key, ExecutorContact) end,
-    BaseKnowlegeContact = peer:closest_to(ExecutorContact, Key),
-    spawn(network, find_monitor, [self(), ExecutorContact, Key, BaseKnowlegeContact, FindValueCall, K, Alpha]),
-    receive
-        {ok, Peers} -> Peers
-    end.
+do_find(Client, Peer, Key, FindCall, K, Alpha) ->
+    FindState = #state {
+                   knowledge  = peer:closest_to(Peer, Key),
+                   active     = [Peer],
+                   contacted  = [Peer]
+                },
 
-find_monitor(Parent, ExecutorContact, Key, BaseKnowlegeContact, FindCall, K, Alpha) ->
-    Ret = find_worker(ExecutorContact, BaseKnowlegeContact, Key, [ExecutorContact], [], FindCall, K, Alpha),
-    Parent ! {ok, Ret}.
+    Reply = find_iterator(FindState, Key, FindCall, K, Alpha),
+    Client ! {ok, Reply}.
 
-
-find_worker(_ExecutorContact, [], _Key, BestActive, _Contacted, _FindCall, _K, _Alpha) ->
-    BestActive;
-find_worker(ExecutorContact, KnowlegeContacts, Key, BestActive, Contacted, FindCall, K, Alpha) ->
-    Selected = lists:sublist(KnowlegeContacts -- Contacted, Alpha),
-    %% spawn_link
-    AlphaFindCollector = spawn(network, alpha_find_collector,
-                               [min(Alpha,length(Selected)), self(), [], [], []]),
-    lists:foreach(fun(Contact) -> spawn(network, discover_from,
-                                        [Contact, FindCall, AlphaFindCollector]) end, Selected),
+find_iterator(FindState, Key, FindCall, K, AsynQueries) ->
+	query_peers(FindState, AsynQueries, FindCall, self()),
     receive
         {ok, [], [], []} ->
-            BestActive;
+            FindState#state.active;
 
         {ok, [], [], Expired} ->
-            NewContacted = append_unique(Contacted, Expired),
-            NewKnowlege = KnowlegeContacts -- Contacted,
-            UnaskedNumber = length(NewKnowlege),
-            find_worker(ExecutorContact, NewKnowlege, Key, BestActive, NewContacted, FindCall, K, UnaskedNumber);
+            NewFindState = FindState#state {
+                              contacted = append_unique(FindState#state.contacted, Expired)
+                           },
+
+            AllKnowledge = length(NewFindState#state.knowledge),
+            find_iterator(NewFindState, Key, FindCall, K, AllKnowledge);
 
         {ok, Discovered, Active, Expired} ->
-            NewContacted = append_unique(Contacted,  Active ++ Expired),
-            CompleteKnowlege = append_unique(Discovered, (KnowlegeContacts -- NewContacted)),
-            SortedKnowlege = k_closest_to(K, Key, CompleteKnowlege),
 
+            NewFindState = FindState#state {
+                              knowledge = k_closest_to(K, Key, append_unique(Discovered, FindState#state.knowledge)),
+                              active    = k_closest_to(K, Key, append_unique(Active, FindState#state.active)),
+                              contacted = append_unique(FindState#state.contacted, Active ++ Expired)
+							},
 
-            [CandidateClosest | _ ] = k_closest_to(K, Key, Active),
-            [ClosestSoFar | _] = k_closest_to(K, Key, BestActive),
+            [CandidateClosest   | _ ] = kbucket:sort_on(Key, Active),
+            [ClosestActiveSoFar | _ ] = FindState#state.active,
 
-            NewBestActive = k_closest_to(K, Key, append_unique(Active, BestActive)),
-            UnaskedNumber = length(KnowlegeContacts),
-            case kbucket:is_closest(CandidateClosest, ClosestSoFar, Key) of
+            case kbucket:is_closest(CandidateClosest, ClosestActiveSoFar, Key) of
                 true ->
-                    find_worker(ExecutorContact, SortedKnowlege, Key, NewBestActive, NewContacted, FindCall, K, Alpha);
+                    find_iterator(NewFindState, Key, FindCall, K, AsynQueries);
                 false ->
-                    find_worker(ExecutorContact, SortedKnowlege, Key, NewBestActive, NewContacted, FindCall, K, UnaskedNumber)
+                    % if a round doesn't returns any peer closer (CandidateClosest)
+                    % than the closest already seen (ClosestActiveSoFar) sends the find_*
+                    % to all of the K closest peers not already queried
+                    AllKnowledge = length(NewFindState#state.knowledge),
+                    find_iterator(NewFindState, Key, FindCall, K, AllKnowledge)
             end;
 
          {ok, found, Value} ->
             {found, Value}
     end.
 
-alpha_find_collector(0, Worker, Discovered, Active, Expired) ->
-    Worker ! {ok, lists:flatten(Discovered), lists:flatten(Active), lists:flatten(Expired)};
-alpha_find_collector(Alpha, Worker, Discovered, Active, Expired) ->
-    receive
-        {response_from, _Contact, {found, Value}} ->
-            Worker ! {ok, found, Value};
-        {response_from, Contact, Result} ->
-            alpha_find_collector(Alpha - 1, Worker, Result ++ Discovered, [Contact | Active], Expired);
+query_peers(FindState, AsynQueries, FindCall, FindIterator)->
+    SelectedPeers = pick_n_not_queried(FindState, AsynQueries),
+    ReplyExpected = length(SelectedPeers),
+    FindCollector = spawn(network, find_collector, [ReplyExpected, FindIterator]),
+    FindWorker    = fun(Peer) -> spawn(network, find_worker, [Peer, FindCall, FindCollector]) end,
+    lists:foreach(FindWorker, SelectedPeers).
 
-        {timeout_from, Contact} ->
-            alpha_find_collector(Alpha - 1, Worker, Discovered, Active, [Contact | Expired])
+find_collector(ReplyExpected, FindIterator) ->
+	find_collector(ReplyExpected, FindIterator, [], [], []).
+
+find_collector(0, FindIterator, Discovered, Active, Expired) ->
+    FindIterator ! {ok, Discovered, Active, Expired};
+find_collector(ReplyExpected, FindIterator, Discovered, Active, Expired) ->
+    receive
+        {response_from, _Peer, {found, Value}} ->
+            FindIterator ! {ok, found, Value};
+        {response_from, Peer, Result} ->
+            NewResult = lists:merge(Result, Discovered),
+            find_collector(ReplyExpected - 1, FindIterator, NewResult, [Peer | Active], Expired);
+        {timeout_from, Peer} ->
+            find_collector(ReplyExpected - 1, FindIterator, Discovered, Active, [Peer | Expired])
     end.
 
-discover_from(Contact, FindCall, FindWorker) ->
-    try FindCall(Contact) of
-      Result -> FindWorker ! {response_from, Contact, Result}
+find_worker(Peer, FindCall, FindCollector) ->
+    try FindCall(Peer) of
+      Result -> FindCollector ! {response_from, Peer, Result}
     catch
-      exit:_ -> FindWorker ! {timeout_from, Contact}
+      exit:_ -> FindCollector ! {timeout_from, Peer}
     end.
 
 append_unique(FirstList, SecondList) ->
@@ -92,3 +109,6 @@ append_unique(FirstList, SecondList) ->
 k_closest_to(K, Key, Contacts) ->
     SortedContacts = kbucket:sort_on(Key, Contacts),
     lists:sublist(SortedContacts, K).
+
+pick_n_not_queried(FindState, N) ->
+    lists:sublist(FindState#state.knowledge -- FindState#state.contacted, N).
